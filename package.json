@@ -1,0 +1,31 @@
+{
+  "name": "zkteco-sha",
+  "version": "1.4.1",
+  "description": "JavaScript module for ZKTECO biometric devices",
+  "main": "zklib.js",
+  "scripts": {
+    "test": "node test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shahadatjaman"
+  },
+  "keywords": [
+    "zkteco",
+    "zkteco-sha",
+    "node-zklib",
+    "attendance-device",
+    "attendance",
+    "biometrix-device",
+    "shahadat-jaman"
+  ],
+  "author": "Shahadat Jaman",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/shahadatjaman"
+  },
+  "homepage": "https://github.com/shahadatjaman",
+  "dependencies": {
+    "zklib-js": "^1.0.0"
+  }
+}
