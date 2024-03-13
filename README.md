@@ -126,7 +126,7 @@ const test = async () => {
 test(); // in the end we execute the function
 ```
 
-There are many functions you can just visit [zk protocol](https://github.com/shahadatjaman) to see the command and put it in executeCmd function already existed in the library.
+There are many functions you can just visit [zk protocol](https://github.com/adrobinoga/zk-protocol/blob/master/protocol.md) to see the command and put it in executeCmd function already existed in the library.
 The function executeCmd accepts the command constant in `constants.js` and the data if needed, and we can implement it as follows:
 
 ```javascript
