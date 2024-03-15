@@ -11,7 +11,7 @@ const test = async () => {
     const deviceIp = "192.168.1.201";
 
     // List of devices with their respective IP addresses and ports.
-    const devices = [{ deviceIp: "192.168.1.201" }];
+    const devices = [{ deviceIp: "192.168.1.201", devicePort: "4370" }];
     let zkInstance = new ZKTeco(devices);
 
     // Establish connections to the machine using sockets.
