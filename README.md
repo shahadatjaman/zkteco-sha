@@ -1,125 +1,82 @@
-# Zkteco-sha
-
-- install
-
-```
-npm i zkteco-sha
-```
-
-- Documentation
+## Documentation
 
 ```javascript
-//  test code:
+// Test code:
 
 const ZKTeco = require("zkteco-sha");
-const test = async () => {
-  const devices = [];
 
+const test = async () => {
   try {
-    const devices = [
-      {
-        deviceIp: "192.168.1.8",
-        devicePort: "4370",
-      },
-    ];
-    let zkInstance = new ZKLib(devices);
-    // Create sockets to machine
+    // Define the IP address of the device.
+    const deviceIp = "192.168.1.201";
+
+    // List of devices with their respective IP addresses and ports.
+    const devices = [{ deviceIp: "192.168.1.201" }];
+    let zkInstance = new ZKTeco(devices);
+
+    // Establish connections to the machine using sockets.
     await zkInstance.createSockets();
 
-    // Get users in machine
-
-    const users = await zkInstance.getUsers();
+    // Retrieve users based on device IP addresses in the machine.
+    const users = await zkInstance.getUsers(deviceIp);
     console.log(users);
 
-    // Get all connected devices
+    // Retrieve all devices currently connected.
     const getAllConnectedDevices = await zkInstance.getAllConnectedDevice();
 
-    // Create new user: setUser(uid, userid, name, password, role = 0, cardno = 0)
+    // Create a new user: setUser(uid, userid, name, password, role = 0, cardno = 0)
     await zkInstance.setUser(12, "9", "Shahadat Jaman", "1", 0, 0);
 
-    // Get all logs in the machine
-    // Currently, there is no filter to take data, it just takes all !!
+    // Retrieve all logs stored in the machine.
+    // At the moment, there's no filter to select specific data, it captures everything!!
     const logs = await zkInstance.getAttendances(function () {
       if (err) throw err;
-      console.log("Very cool! 😎");
-    });
+    }, deviceIp);
     console.log(logs);
 
-    // You can also read realtime log by getRealTimelogs function
-
-    await zkInstance.getRealTimeLogs((data) => {
-      // do something when some checkin
-      console.log(data);
-    });
-
-    // Get the current Time in the machine
-
-    const z = await zkInstance.getTime();
+    // Retrieve the current time from the machine.
+    const z = await zkInstance.getTime(deviceIp);
     console.log(z.toString());
 
     // Serial number
-
-    const sr = await zkInstance.getSerialNumber();
+    const sr = await zkInstance.getSerialNumber(deviceIp);
     console.log(sr);
 
     // Firmware Version
-
-    const fw = await zkInstance.getFirmware();
+    const fw = await zkInstance.getFirmware(deviceIp);
     console.log(fw);
 
     // PIN of the device
-
-    const pi = await zkInstance.getPIN();
+    const pi = await zkInstance.getPIN(deviceIp);
     console.log(pi);
 
-    // Check Face functionality (Yes if ON, No if OFF)
-
-    const fo = await zkInstance.getFaceOn();
-    console.log(fo);
-
-    // SSR (Self-Service-Recorder)
-
-    const ssr = await zkInstance.getSSR();
-    console.log(ssr);
-
     // Device Version
-
-    const dv = await zkInstance.getDeviceVersion();
+    const dv = await zkInstance.getDeviceVersion(deviceIp);
     console.log(dv);
 
     // Device Name
-
-    const n = await zkInstance.getDeviceName();
+    const n = await zkInstance.getDeviceName(deviceIp);
     console.log(n);
 
     // Platform Version
-
-    const p = await zkInstance.getPlatform();
+    const p = await zkInstance.getPlatform(deviceIp);
     console.log(p);
 
     // OS Version
-
-    const o = await zkInstance.getOS();
+    const o = await zkInstance.getOS(deviceIp);
     console.log(o);
 
-    // WorkCode of the machine
-
-    const wc = await zkInstance.getWorkCode();
-    console.log(wc);
-
     // Get Attendance size
-
-    const s = await zkInstance.getAttendanceSize();
+    const s = await zkInstance.getAttendanceSize(deviceIp);
     console.log(s);
 
-    // Delete the data in machine
-    // Note: You should do this when there are too many data in the machine,
-    // this issue can slow down machine.
+    // Clear out the machine's data.
+    // Reminder: It's important to do this when there's too much data in the machine,
+    // as having too much can make the machine slower.
+    zkInstance.clearAttendanceLog(deviceIp);
 
-    zkInstance.clearAttendanceLog();
-
-    // Disconnect the machine ( don't do this when you need realtime update :)))
-    await zkInstance.disconnect();
+    // Unplug the machine by device ip (but not when you need instant updates.
+    await zkInstance.disconnect(deviceIp);
   } catch (e) {
     console.log(e);
     if (e.code === "EADDRINUSE") {

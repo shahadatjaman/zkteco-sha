@@ -311,6 +311,16 @@ class ZKLib {
     );
   }
 
+  async getFirmware(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
+    return await this.functionWrapper(
+      () => device.zklibTcp.getFirmware(),
+      device.zklibTcp.getFirmware(),
+      device
+    );
+  }
+
   async powerOff(deviceIP) {
     const device = await findDeviceByIp(this.connections, deviceIP);
 
