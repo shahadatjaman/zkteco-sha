@@ -4,16 +4,16 @@ const timeParser = require("./timestamp_parser");
 const {
   createTCPHeader,
   exportErrorMessage,
-  removeTcpHeader,
+
   decodeUserData72,
   decodeRecordData40,
   decodeRecordRealTimeLog52,
   checkNotEventTCP,
   decodeTCPHeader,
+  removeTcpHeader,
 } = require("./utils");
 
 const { log } = require("./helpers/errorLog");
-const { error } = require("console");
 
 class ZKLibTCP {
   constructor(ip, port, timeout) {
@@ -252,127 +252,135 @@ class ZKLibTCP {
    */
   readWithBuffer(reqData, cb = null) {
     return new Promise(async (resolve, reject) => {
-      this.replyId++;
-      const buf = createTCPHeader(
-        COMMANDS.CMD_DATA_WRRQ,
-        this.sessionId,
-        this.replyId,
-        reqData
-      );
-      let reply = null;
-
       try {
-        reply = await this.requestData(buf);
-        //console.log(reply.toString('hex'));
-      } catch (err) {
-        reject(err);
-        console.log(reply);
-      }
+        this.replyId++;
+        const buf = createTCPHeader(
+          COMMANDS.CMD_DATA_WRRQ,
+          this.sessionId,
+          this.replyId,
+          reqData
+        );
+        let reply = null;
 
-      const header = decodeTCPHeader(reply?.subarray(0, 16));
-      switch (header.commandId) {
-        case COMMANDS.CMD_DATA: {
-          resolve({ data: reply.subarray(16), mode: 8 });
-          break;
+        try {
+          reply = await this.requestData(buf);
+          //console.log(reply.toString('hex'));
+        } catch (err) {
+          reject("err_no 1154");
+          console.log(reply);
         }
-        case COMMANDS.CMD_ACK_OK:
-        case COMMANDS.CMD_PREPARE_DATA: {
-          // this case show that data is prepared => send command to get these data
-          // reply variable includes information about the size of following data
-          const recvData = reply.subarray(16);
-          const size = recvData.readUIntLE(1, 4);
 
-          // We need to split the data to many chunks to receive , because it's to large
-          // After receiving all chunk data , we concat it to TotalBuffer variable , that 's the data we want
-          let remain = size % MAX_CHUNK;
-          let numberChunks = Math.round(size - remain) / MAX_CHUNK;
-          let totalPackets = numberChunks + (remain > 0 ? 1 : 0);
-          let replyData = Buffer.from([]);
+        const header = decodeTCPHeader(reply?.subarray(0, 16));
+        if (header) {
+          switch (header.commandId) {
+            case COMMANDS.CMD_DATA: {
+              resolve({ data: reply.subarray(16), mode: 8 });
+              break;
+            }
+            case COMMANDS.CMD_ACK_OK:
+            case COMMANDS.CMD_PREPARE_DATA: {
+              // this case show that data is prepared => send command to get these data
+              // reply variable includes information about the size of following data
+              const recvData = reply.subarray(16);
+              const size = recvData.readUIntLE(1, 4);
 
-          let totalBuffer = Buffer.from([]);
-          let realTotalBuffer = Buffer.from([]);
+              // We need to split the data to many chunks to receive , because it's to large
+              // After receiving all chunk data , we concat it to TotalBuffer variable , that 's the data we want
+              let remain = size % MAX_CHUNK;
+              let numberChunks = Math.round(size - remain) / MAX_CHUNK;
+              let totalPackets = numberChunks + (remain > 0 ? 1 : 0);
+              let replyData = Buffer.from([]);
 
-          const timeout = 10000;
-          let timer = setTimeout(() => {
-            internalCallback(
-              replyData,
-              new Error("TIMEOUT WHEN RECEIVING PACKET")
-            );
-          }, timeout);
+              let totalBuffer = Buffer.from([]);
+              let realTotalBuffer = Buffer.from([]);
 
-          const internalCallback = (replyData, err = null) => {
-            // this.socket && this.socket.removeListener('data', handleOnData)
-            timer && clearTimeout(timer);
-            resolve({ data: replyData, err });
-          };
-
-          const handleOnData = (reply) => {
-            if (checkNotEventTCP(reply)) return;
-            clearTimeout(timer);
-            timer = setTimeout(() => {
-              internalCallback(
-                replyData,
-                new Error(`TIME OUT !! ${totalPackets} PACKETS REMAIN !`)
-              );
-            }, timeout);
-
-            totalBuffer = Buffer.concat([totalBuffer, reply]);
-            const packetLength = totalBuffer.readUIntLE(4, 2);
-            if (totalBuffer.length >= 8 + packetLength) {
-              realTotalBuffer = Buffer.concat([
-                realTotalBuffer,
-                totalBuffer.subarray(16, 8 + packetLength),
-              ]);
-              totalBuffer = totalBuffer.subarray(8 + packetLength);
-
-              if (
-                (totalPackets > 1 &&
-                  realTotalBuffer.length === MAX_CHUNK + 8) ||
-                (totalPackets === 1 && realTotalBuffer.length === remain + 8)
-              ) {
-                replyData = Buffer.concat([
+              const timeout = 10000;
+              let timer = setTimeout(() => {
+                internalCallback(
                   replyData,
-                  realTotalBuffer.subarray(8),
-                ]);
-                totalBuffer = Buffer.from([]);
-                realTotalBuffer = Buffer.from([]);
+                  new Error("TIMEOUT WHEN RECEIVING PACKET")
+                );
+              }, timeout);
 
-                totalPackets -= 1;
-                cb && cb(replyData.length, size);
+              const internalCallback = (replyData, err = null) => {
+                // this.socket && this.socket.removeListener('data', handleOnData)
+                timer && clearTimeout(timer);
+                resolve({ data: replyData, err });
+              };
 
-                if (totalPackets <= 0) {
-                  internalCallback(replyData);
+              const handleOnData = (reply) => {
+                if (checkNotEventTCP(reply)) return;
+                clearTimeout(timer);
+                timer = setTimeout(() => {
+                  internalCallback(
+                    replyData,
+                    new Error(`TIME OUT !! ${totalPackets} PACKETS REMAIN !`)
+                  );
+                }, timeout);
+
+                totalBuffer = Buffer.concat([totalBuffer, reply]);
+                const packetLength = totalBuffer.readUIntLE(4, 2);
+                if (totalBuffer.length >= 8 + packetLength) {
+                  realTotalBuffer = Buffer.concat([
+                    realTotalBuffer,
+                    totalBuffer.subarray(16, 8 + packetLength),
+                  ]);
+                  totalBuffer = totalBuffer.subarray(8 + packetLength);
+
+                  if (
+                    (totalPackets > 1 &&
+                      realTotalBuffer.length === MAX_CHUNK + 8) ||
+                    (totalPackets === 1 &&
+                      realTotalBuffer.length === remain + 8)
+                  ) {
+                    replyData = Buffer.concat([
+                      replyData,
+                      realTotalBuffer.subarray(8),
+                    ]);
+                    totalBuffer = Buffer.from([]);
+                    realTotalBuffer = Buffer.from([]);
+
+                    totalPackets -= 1;
+                    cb && cb(replyData.length, size);
+
+                    if (totalPackets <= 0) {
+                      internalCallback(replyData);
+                    }
+                  }
+                }
+              };
+
+              this.socket.once("close", () => {
+                internalCallback(
+                  replyData,
+                  new Error("Socket is disconnected unexpectedly")
+                );
+              });
+
+              this.socket.on("data", handleOnData);
+
+              for (let i = 0; i <= numberChunks; i++) {
+                if (i === numberChunks) {
+                  this.sendChunkRequest(numberChunks * MAX_CHUNK, remain);
+                } else {
+                  this.sendChunkRequest(i * MAX_CHUNK, MAX_CHUNK);
                 }
               }
+
+              break;
             }
-          };
-
-          this.socket.once("close", () => {
-            internalCallback(
-              replyData,
-              new Error("Socket is disconnected unexpectedly")
-            );
-          });
-
-          this.socket.on("data", handleOnData);
-
-          for (let i = 0; i <= numberChunks; i++) {
-            if (i === numberChunks) {
-              this.sendChunkRequest(numberChunks * MAX_CHUNK, remain);
-            } else {
-              this.sendChunkRequest(i * MAX_CHUNK, MAX_CHUNK);
+            default: {
+              reject(
+                new Error(
+                  "ERROR_IN_UNHANDLE_CMD " +
+                    exportErrorMessage(header.commandId)
+                )
+              );
             }
           }
-
-          break;
         }
-        default: {
-          reject(
-            new Error(
-              "ERROR_IN_UNHANDLE_CMD " + exportErrorMessage(header.commandId)
-            )
-          );
-        }
+      } catch (error) {
+        console.log("err_no 6425");
       }
     });
   }
@@ -579,7 +587,7 @@ class ZKLibTCP {
         .toString("utf-8")
         .replace(keyword + "=", "");
     } catch (err) {
-      return Promise.reject(err);
+      console.log("err", err);
     }
   }
 
@@ -778,7 +786,7 @@ class ZKLibTCP {
    * @param {string} cardno - User card number (default: '').
    * @returns {Promise<boolean>} - A promise resolving with true if user is set successfully, otherwise false.
    */
-  async setUser(uid, userid, name, password, role = 0, cardno = "") {
+  async setUser(uid, userid, name, password, role = 0, cardno = "", deviceIP) {
     try {
       const MAX_UID = 3000;
       const MAX_USERID_LENGTH = 9;
@@ -870,6 +878,82 @@ class ZKLibTCP {
     } catch (err) {
       return Promise.reject(err);
     }
+  }
+
+  async freeData() {
+    return await this.executeCmd(COMMANDS.CMD_FREE_DATA, "");
+  }
+
+  async getInfo() {
+    try {
+      const data = await this.executeCmd(COMMANDS.CMD_GET_FREE_SIZES, "");
+
+      return {
+        userCounts: data.readUIntLE(24, 4),
+        logCounts: data.readUIntLE(40, 4),
+        logCapacity: data.readUIntLE(72, 4),
+      };
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  async getDeviceVersion() {
+    const keyword = "~ZKFPVersion";
+    try {
+      const data = await this.executeCmd(COMMANDS.CMD_OPTIONS_RRQ, keyword);
+
+      return data
+        .slice(8)
+        .toString("ascii")
+        .replace(keyword + "=", "");
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+  async getAttendances(callbackInProcess = () => {}) {
+    if (this.socket) {
+      try {
+        await this.freeData();
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+
+    let data = null;
+    try {
+      data = await this.readWithBuffer(
+        REQUEST_DATA.GET_ATTENDANCE_LOGS,
+        callbackInProcess
+      );
+    } catch (err) {
+      return Promise.reject(err);
+    }
+
+    if (this.socket) {
+      try {
+        await this.freeData();
+      } catch (err) {
+        return Promise.reject(err);
+      }
+    }
+
+    const RECORD_PACKET_SIZE = 40;
+
+    let recordData = data.data.subarray(4);
+    let records = [];
+    while (recordData.length >= RECORD_PACKET_SIZE) {
+      const record = decodeRecordData40(
+        recordData.subarray(0, RECORD_PACKET_SIZE)
+      );
+      records.push({ ...record, ip: this.ip });
+      recordData = recordData.subarray(RECORD_PACKET_SIZE);
+    }
+
+    return { data: records };
+  }
+  async clearAttendanceLog() {
+    return await this.executeCmd(COMMANDS.CMD_CLEAR_ATTLOG, "");
   }
 }
 

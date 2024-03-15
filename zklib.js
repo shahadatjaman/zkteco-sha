@@ -1,36 +1,83 @@
 const ZKLibTCP = require("./zklibtcp");
 const ZKLibUDP = require("./zklibudp");
-
-const { ZKError, ERROR_TYPES } = require("./zkerror");
-
-/**
- * Creates a new ZKLibClient instance with TCP and UDP connections.
- *
- * @param {string} ip - The IP address of the device.
- * @param {number} port - The port number.
- * @param {number} timeout - The timeout duration.
- * @param {number} inport - The input port number for UDP connection.
- */
+const { ERROR_TYPES, ZKError } = require("./zkerror");
+const { findDeviceByIp } = require("./utils");
 
 class ZKLib {
-  /**
-   * Creates a new ZKLibClient instance with TCP and UDP connections.
-   *
-   * @param {string} ip - The IP address of the device.
-   * @param {number} port - The port number.
-   * @param {number} timeout - The timeout duration.
-   * @param {number} inport - The input port number for UDP connection.
-   */
-  constructor(ip, port, timeout, inport) {
-    this.connectionType = null;
-    this.zklibTcp = new ZKLibTCP(ip, port, timeout);
-    this.zklibUdp = new ZKLibUDP(ip, port, timeout, inport);
-    this.interval = null;
-    this.timer = null;
-    this.isBusy = false;
-    this.ip = ip;
-    this.port = port;
-    this.status = "";
+  constructor(devices) {
+    this.devices = devices;
+    this.timeout = 10000;
+    this.inport = 4000;
+
+    this.connections = this.devices.map((device, key) => {
+      const { deviceIp, devicePort } = device;
+
+      return {
+        index: key,
+        ip: deviceIp,
+        port: devicePort,
+        timeout: this.timeout,
+        inport: this.inport,
+        zklibTcp: new ZKLibTCP(deviceIp, devicePort, this.timeout),
+        zklibUdp: new ZKLibUDP(deviceIp, devicePort, this.timeout, this.inport),
+        interval: null,
+        timer: null,
+        isBusy: false,
+        status: 0,
+        connectionType: "",
+      };
+    });
+  }
+
+  async createSockets(cbErr, cbClose) {
+    try {
+      for (const connection of this.connections) {
+        const { zklibTcp, ip, port } = connection;
+
+        if (!zklibTcp.socket) {
+          await zklibTcp.createSocket(cbErr, cbClose);
+          await zklibTcp.connect();
+          console.log(`Connected to ${ip}:${port} via TCP`);
+          connection.connectionType = "tcp";
+          connection.status = 1;
+        }
+      }
+    } catch (errToConnect) {
+      // console.log("errToConnect", errToConnect);
+      for (const connection of this.connections) {
+        connection.status = 0;
+        try {
+          await connection.zklibTcp.disconnect();
+        } catch (errToDisconnect) {
+          console.log("Error disconnecting TCP:", errToDisconnect);
+        }
+
+        if (errToConnect.code !== ERROR_TYPES.ECONNREFUSED) {
+          continue; // Skip UDP connection if TCP connection failed for this device
+        }
+
+        try {
+          if (!connection.zklibUdp.socket) {
+            await connection.zklibUdp.createSocket(cbErr, cbClose);
+            await connection.zklibUdp.connect();
+            connection.connectionType = "udp";
+            connection.status = 1;
+          }
+        } catch (err) {
+          if (err.code !== "EADDRINUSE") {
+            connection.connectionType = null;
+            try {
+              await connection.zklibUdp.disconnect();
+              connection.zklibUdp.socket = null;
+              connection.zklibTcp.socket = null;
+            } catch (err) {}
+          } else {
+            connection.connectionType = "udp";
+            connection.status = 0;
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -41,402 +88,247 @@ class ZKLib {
    * @param {string} command - Command being executed.
    * @returns {Promise<any>} - Resolves with the result of the callback execution.
    */
-  async functionWrapper(tcpCallback, udpCallback, command) {
-    try {
-      switch (this.connectionType) {
-        case "tcp":
-          if (!this.zklibTcp.socket)
-            throw new ZKError(
-              new Error(`Socket isn't connected !`),
-              `[TCP]`,
-              this.ip
-            );
-          return await tcpCallback();
-        case "udp":
-          if (!this.zklibUdp.socket)
-            throw new ZKError(
-              new Error(`Socket isn't connected !`),
-              `[UDP]`,
-              this.ip
-            );
-          return await udpCallback();
-        default:
-          throw new ZKError(new Error(`Socket isn't connected!`), "", this.ip);
-      }
-    } catch (err) {
-      return Promise.reject(
-        new ZKError(
-          err,
-          `[${this.connectionType.toUpperCase()}] ${command}`,
-          this.ip
-        )
-      );
+  async functionWrapper(tcpCallback, udpCallback, device) {
+    switch (device.connectionType) {
+      case "tcp":
+        if (device.zklibTcp.socket) {
+          try {
+            const res = await tcpCallback();
+
+            return res;
+          } catch (err) {
+            console.log("error_no 100", err);
+          }
+        }
+      case "udp":
+        if (device.zklibUdp.socket) {
+          try {
+            const res = await udpCallback();
+            return res;
+          } catch (err) {
+            console.log("error_no 101", err);
+          }
+        } else {
+        }
+      default:
+        return "";
     }
   }
 
   /**
-   * Creates and establishes a socket connection, prioritizing TCP and falling back to UDP if TCP connection fails.
+   * Retrieves the device SN, using TCP.
    *
-   * @param {Function} cbErr(optional) - Error callback function.
-   * @param {Function} cbClose(optional) - Close callback function.
-   * @returns {Promise<void>} - A promise that resolves when the socket connection is established.
+   * @returns {Promise<any>} - Resolves with the device SN.
    */
-  async createSocket(cbErr, cbClose) {
-    try {
-      if (!this.zklibTcp.socket) {
-        await this.zklibTcp.createSocket(cbErr, cbClose);
-        await this.zklibTcp.connect();
-        console.log("ok tcp");
-      }
-      this.connectionType = "tcp";
-      this.status = "connected";
-    } catch (errToConnect) {
-      console.log(`🐞 connect ETIMEDOUT ${this.ip}:${this.port}`);
-      this.status = "disconnected";
-      try {
-        await this.zklibTcp.disconnect();
-      } catch (errToDisconnect) {
-        console.log("errToDisconnect", errToDisconnect);
-      }
+  async getAllConnectedDevice() {
+    if (this.connections && this.connections.length > 0) {
+      const retrives = async () => {
+        let sn = [];
 
-      if (errToConnect.code !== ERROR_TYPES.ECONNREFUSED) {
-        // return Promise.reject(new ZKError(err, "TCP CONNECT", this.ip));
-      }
+        for (const connection of this.connections) {
+          const { zklibTcp, connectionType, ip, port } = connection;
 
-      // try {
-      //   if (!this.zklibUdp.socket) {
-      //     await this.zklibUdp.createSocket(cbErr, cbClose);
-      //     await this.zklibUdp.connect();
-      //   }
-      //   console.log("ok udp");
-      //   this.connectionType = "udp";
-      // } catch (err) {
-      //   if (err.code !== "EADDRINUSE") {
-      //     this.connectionType = null;
-      //     try {
-      //       await this.zklibUdp.disconnect();
-      //       this.zklibUdp.socket = null;
-      //       this.zklibTcp.socket = null;
-      //     } catch (err) {}
-      //     // return Promise.reject(new ZKError(err, "UDP CONNECT", this.ip));
-      //   } else {
-      //     this.connectionType = "udp";
-      //   }
-      // }
+          const { userCounts, logCounts, logCapacity } = await this.getInfo(ip);
+
+          let device_sn = await zklibTcp.getSerialNumber(ip);
+
+          let getDeviceVersion = await zklibTcp.getDeviceVersion(ip);
+
+          let getDeviceName = await zklibTcp.getDeviceName(ip);
+
+          const getPlatform = await zklibTcp.getPlatform(ip);
+
+          const getOS = await zklibTcp.getOS(ip);
+
+          const getPIN = await zklibTcp.getPIN(ip);
+
+          const getTime = await zklibTcp.getTime(ip);
+
+          sn.push({
+            ip,
+            port,
+            sn: device_sn,
+            userCounts,
+            connectionType,
+            logCounts,
+            logCapacity,
+            deviceVersion: getDeviceVersion,
+            deviceName: getDeviceName,
+            platform: getPlatform,
+            os: getOS,
+            pin: getPIN,
+            deviceTime: getTime,
+          });
+        }
+
+        return sn;
+      };
+
+      return retrives();
+    } else {
+      console.log("has not device");
+      return null;
     }
   }
 
-  async getStatus() {
-    return this.status;
-  }
-  /**
-   * Retrieves user data, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @returns {Promise<any>} - Resolves with user data.
-   */
-  async getUsers() {
+  async setUser(uid, userid, name, password, role = 0, cardno = 0, deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
     return await this.functionWrapper(
-      () => this.zklibTcp.getUsers(),
-      () => this.zklibUdp.getUsers()
+      () =>
+        device.zklibTcp.setUser(
+          uid,
+          userid,
+          name,
+          password,
+          role,
+          cardno,
+          deviceIP
+        ),
+      device.zklibTcp.setUser(
+        uid,
+        userid,
+        name,
+        password,
+        role,
+        cardno,
+        deviceIP
+      ),
+      deviceIP
     );
   }
 
-  /**
-   * Retrieves the device time, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @returns {Promise<any>} - Resolves with the device time.
-   */
-  async getTime() {
+  async getInfo(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
     return await this.functionWrapper(
-      () => this.zklibTcp.getTime(),
-      () => this.zklibUdp.getTime()
+      () => device.zklibTcp.getInfo(),
+      () => device.zklibUdp.getInfo(),
+      device
     );
   }
 
-  /**
-   * Retrieves the serial number of the device, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the device serial number.
-   */
-  async getSerialNumber() {
-    return await this.functionWrapper(() => this.zklibTcp.getSerialNumber());
+  async getPIN(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
+    return await this.functionWrapper(() => device.zklibTcp.getPIN(), device);
   }
 
-  /**
-   * Retrieves the device version, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the device version.
-   */
-  async getDeviceVersion() {
-    return await this.functionWrapper(() => this.zklibTcp.getDeviceVersion());
-  }
+  async getSerialNumber(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
 
-  /**
-   * Retrieves the device name, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the device name.
-   */
-  async getDeviceName() {
-    return await this.functionWrapper(() => this.zklibTcp.getDeviceName());
-  }
-
-  /**
-   * Retrieves the platform information of the device, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the platform information.
-   */
-  async getPlatform() {
-    return await this.functionWrapper(() => this.zklibTcp.getPlatform());
-  }
-
-  /**
-   * Retrieves the operating system information of the device, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the operating system information.
-   */
-  async getOS() {
-    return await this.functionWrapper(() => this.zklibTcp.getOS());
-  }
-
-  /**
-   * Retrieves work code information, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with work code information.
-   */
-  async getWorkCode() {
-    return await this.functionWrapper(() => this.zklibTcp.getWorkCode());
-  }
-
-  /**
-   * Retrieves PIN information, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with PIN information.
-   */
-  async getPIN() {
-    return await this.functionWrapper(() => this.zklibTcp.getPIN());
-  }
-
-  /**
-   * Retrieves face recognition status, using TCP.
-   *
-   * @returns {Promise<string>} - Resolves with "Yes" if face recognition is enabled, otherwise "No".
-   */
-  async getFaceOn() {
-    return await this.functionWrapper(() => this.zklibTcp.getFaceOn());
-  }
-
-  /**
-   * Retrieves SSR information, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with SSR information.
-   */
-  async getSSR() {
-    return await this.functionWrapper(() => this.zklibTcp.getSSR());
-  }
-
-  /**
-   * Retrieves the firmware version of the device, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the firmware version.
-   */
-  async getFirmware() {
-    return await this.functionWrapper(() => this.zklibTcp.getFirmware());
-  }
-
-  /**
-   * Sets user information, using TCP.
-   *
-   * @param {number} uid - User ID.
-   * @param {string} userid - User ID.
-   * @param {string} name - User name.
-   * @param {string} password - User password.
-   * @param {number} [role=0] - User role (optional, default is 0).
-   * @param {string} [cardno=''] - Card number (optional, default is "").
-   * @returns {Promise<any>} - Resolves with the result of setting user information.
-   */
-  async setUser(uid, userid, name, password, role = 0, cardno = "") {
-    return await this.functionWrapper(() =>
-      this.zklibTcp.setUser(uid, userid, name, password, role, cardno)
-    );
-  }
-
-  /**
-   * Retrieves the size of attendance logs, using TCP.
-   *
-   * @returns {Promise<number>} - Resolves with the size of attendance logs.
-   */
-  async getAttendanceSize() {
-    return await this.functionWrapper(() => this.zklibTcp.getAttendanceSize());
-  }
-
-  /**
-   * Retrieves attendance data, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @param {Function} cb - Callback function to handle attendance data.
-   * @returns {Promise<any>} - Resolves with attendance data.
-   */
-  async getAttendances(cb) {
     return await this.functionWrapper(
-      () => this.zklibTcp.getAttendances(cb),
-      () => this.zklibUdp.getAttendances(cb)
+      () => device.zklibTcp.getSerialNumber(),
+      device.zklibTcp.getSerialNumber(),
+      device
     );
   }
 
-  /**
-   * Retrieves real-time logs, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @param {Function} cb - Callback function to handle real-time logs.
-   * @returns {Promise<any>} - Resolves with real-time logs.
-   */
-  async getRealTimeLogs(cb) {
+  async getDeviceVersion(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
     return await this.functionWrapper(
-      () => this.zklibTcp.getRealTimeLogs(cb),
-      () => this.zklibUdp.getRealTimeLogs(cb)
+      () => device.zklibTcp.getDeviceVersion(),
+      device.zklibTcp.getDeviceVersion(),
+      device
     );
   }
 
-  /**
-   * Disconnects from the device, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @returns {Promise<void>} - A promise that resolves when the disconnection is complete.
-   */
-  async disconnect() {
+  async getDeviceName(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
     return await this.functionWrapper(
-      () => this.zklibTcp.disconnect(),
-      () => this.zklibUdp.disconnect()
+      () => device.zklibTcp.getDeviceName(),
+      device.zklibTcp.getDeviceName(),
+      device
     );
   }
 
-  /**
-   * Powers off the device, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the result of powering off the device.
-   */
-  async powerOff() {
-    return await this.functionWrapper(() => this.zklibTcp.powerOff());
-  }
+  async getPlatform(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
 
-  /**
-   * Puts the device into sleep mode, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the result of putting the device into sleep mode.
-   */
-  async sleep() {
-    return await this.functionWrapper(() => this.zklibTcp.sleep());
-  }
-
-  /**
-   * Disables the device, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the result of disabling the device.
-   */
-  async disableDevice() {
-    return await this.functionWrapper(() => this.zklibTcp.disableDevice());
-  }
-
-  /**
-   * Enables the device, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @returns {Promise<any>} - Resolves with the result of enabling the device.
-   */
-  async enableDevice() {
     return await this.functionWrapper(
-      () => this.zklibTcp.enableDevice(),
-      () => this.zklibUdp.enableDevice()
+      () => device.zklibTcp.getPlatform(),
+      device.zklibTcp.getPlatform(),
+      device
     );
   }
 
-  /**
-   * Restarts the device, using TCP.
-   *
-   * @returns {Promise<any>} - Resolves with the result of restarting the device.
-   */
-  async restart() {
-    return await this.functionWrapper(() => this.zklibTcp.restart());
-  }
+  async getOS(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
 
-  /**
-   * Frees data on the device, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @returns {Promise<any>} - Resolves with the result of freeing data on the device.
-   */
-  async freeData() {
     return await this.functionWrapper(
-      () => this.zklibTcp.freeData(),
-      () => this.zklibUdp.freeData()
+      () => device.zklibTcp.getOS(),
+      device.zklibTcp.getOS(),
+      device
     );
   }
 
-  /**
-   * Retrieves device information, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @returns {Promise<any>} - Resolves with the device information.
-   */
-  async getInfo() {
+  async getPIN(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
     return await this.functionWrapper(
-      () => this.zklibTcp.getInfo(),
-      () => this.zklibUdp.getInfo()
+      () => device.zklibTcp.getPIN(),
+      device.zklibTcp.getPIN(),
+      device
     );
   }
 
-  /**
-   * Retrieves socket status, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @returns {Promise<any>} - Resolves with the socket status.
-   */
-  async getSocketStatus() {
+  async getAttendanceSize(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
     return await this.functionWrapper(
-      () => this.zklibTcp.getSocketStatus(),
-      () => this.zklibUdp.getSocketStatus()
+      () => device.zklibTcp.getAttendanceSize(),
+      device.zklibTcp.getAttendanceSize(),
+      device
     );
   }
 
-  /**
-   * Clears attendance logs, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @returns {Promise<any>} - Resolves with the result of clearing attendance logs.
-   */
-  async clearAttendanceLog() {
+  async getAttendances(cb, deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
     return await this.functionWrapper(
-      () => this.zklibTcp.clearAttendanceLog(),
-      () => this.zklibUdp.clearAttendanceLog()
+      () => device.zklibTcp.getAttendances(cb),
+      () => device.zklibUdp.getAttendances(cb),
+      device
     );
   }
 
-  /**
-   * Executes a command on the device, prioritizing TCP and falling back to UDP if TCP fails.
-   *
-   * @param {number} command - The command to execute.
-   * @param {string} [data=""] - Optional data for the command.
-   * @returns {Promise<any>} - Resolves with the result of the command execution.
-   */
-  async executeCmd(command, data = "") {
+  async clearAttendanceLog(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
     return await this.functionWrapper(
-      () => this.zklibTcp.executeCmd(command, data),
-      () => this.zklibUdp.executeCmd(command, data)
+      () => device.zklibTcp.clearAttendanceLog(),
+      () => device.zklibUdp.clearAttendanceLog(),
+      device
     );
   }
 
-  /**
-   * Sets an interval schedule.
-   *
-   * @param {Function} cb - Callback function to execute.
-   * @param {number} timer - Interval timer in milliseconds.
-   */
+  async getTime(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
 
-  setIntervalSchedule(cb, timer) {
-    this.interval = setInterval(cb, timer);
+    return await this.functionWrapper(
+      () => device.zklibTcp.getTime(),
+      device.zklibTcp.getTime(),
+      device
+    );
   }
 
-  /**
-   * Sets a timer schedule.
-   *
-   * @param {Function} cb - Callback function to execute.
-   * @param {number} timer - Timer duration in milliseconds.
-   */
-  setTimerSchedule(cb, timer) {
-    this.timer = setTimeout(cb, timer);
+  async powerOff(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
+    return await this.functionWrapper(
+      () => device.zklibTcp.powerOff(),
+      device.zklibTcp.powerOff(),
+      device
+    );
+  }
+
+  async restart(deviceIP) {
+    const device = await findDeviceByIp(this.connections, deviceIP);
+
+    return await this.functionWrapper(
+      () => device.zklibTcp.restart(),
+      device.zklibTcp.restart(),
+      device
+    );
   }
 }
-
 module.exports = ZKLib;
