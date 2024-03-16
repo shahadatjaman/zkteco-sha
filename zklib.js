@@ -184,7 +184,7 @@ class ZKLib {
     }
   }
 
-  async setUser(uid, userid, name, password, role = 0, cardno = 0, deviceIP) {
+  async setUser(deviceIP, uid, userid, name, password, role = 0, cardno = 0) {
     if (this.hasDevice) {
       const device = await findDeviceByIp(this.connections, deviceIP);
       return await this.functionWrapper(

@@ -1,6 +1,6 @@
 {
   "name": "zkteco-sha",
-  "version": "1.6.2",
+  "version": "1.6.4",
   "description": "JavaScript module for ZKTECO biometric devices",
   "main": "zklib.js",
   "scripts": {

@@ -24,11 +24,11 @@ const test = async () => {
     // Retrieve all devices currently connected.
     const getAllConnectedDevices = await zkInstance.getAllConnectedDevice();
 
-    // Create a new user: setUser(uid, userid, name, password, role = 0, cardno = 0)
-    await zkInstance.setUser(12, "9", "Shahadat Jaman", "1", 0, 0);
+    // Create a new user: setUser(deviceIp,uid, userid, name, password, role = 0, cardno = 0)
+    await zkInstance.setUser(deviceIp, 12, "9", "Shahadat Jaman", "1", 0, 0);
 
     // Retrieve all logs stored in the machine.
-    // At the moment, there's no filter to select specific data, it captures everything!!
+    // At the moment, there's no filter to select specific device logs, it captures everything!!
     const logs = await zkInstance.getAttendances(function () {
       if (err) throw err;
     }, deviceIp);
