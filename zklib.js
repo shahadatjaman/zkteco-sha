@@ -8,6 +8,7 @@ class ZKLib {
     this.devices = devices;
     this.timeout = 10000;
     this.inport = 4000;
+    this.hasDevice = false;
 
     this.connections = this.devices.map((device, key) => {
       const { deviceIp, devicePort } = device;
@@ -40,9 +41,11 @@ class ZKLib {
           console.log(`Connected to ${ip}:${port} via TCP`);
           connection.connectionType = "tcp";
           connection.status = 1;
+          this.hasDevice = true;
         }
       }
     } catch (errToConnect) {
+      this.hasDevice = false;
       // console.log("errToConnect", errToConnect);
       for (const connection of this.connections) {
         connection.status = 0;
@@ -62,6 +65,7 @@ class ZKLib {
             await connection.zklibUdp.connect();
             connection.connectionType = "udp";
             connection.status = 1;
+            this.hasDevice = true;
           }
         } catch (err) {
           if (err.code !== "EADDRINUSE") {
@@ -80,6 +84,9 @@ class ZKLib {
     }
   }
 
+  async hasDevices() {
+    return this.hasDevice;
+  }
   /**
    * Wraps TCP and UDP callbacks based on the connection type.
    *
@@ -121,60 +128,76 @@ class ZKLib {
    * @returns {Promise<any>} - Resolves with the device SN.
    */
   async getAllConnectedDevice() {
-    if (this.connections && this.connections.length > 0) {
-      const retrives = async () => {
-        let sn = [];
+    if (this.hasDevice) {
+      if (this.connections && this.connections.length > 0) {
+        const retrives = async () => {
+          let sn = [];
 
-        for (const connection of this.connections) {
-          const { zklibTcp, connectionType, ip, port } = connection;
+          for (const connection of this.connections) {
+            const { zklibTcp, connectionType, ip, port } = connection;
 
-          const { userCounts, logCounts, logCapacity } = await this.getInfo(ip);
+            const { userCounts, logCounts, logCapacity } = await this.getInfo(
+              ip
+            );
 
-          let device_sn = await zklibTcp.getSerialNumber(ip);
+            let device_sn = await zklibTcp.getSerialNumber(ip);
 
-          let getDeviceVersion = await zklibTcp.getDeviceVersion(ip);
+            let getDeviceVersion = await zklibTcp.getDeviceVersion(ip);
 
-          let getDeviceName = await zklibTcp.getDeviceName(ip);
+            let getDeviceName = await zklibTcp.getDeviceName(ip);
 
-          const getPlatform = await zklibTcp.getPlatform(ip);
+            const getPlatform = await zklibTcp.getPlatform(ip);
 
-          const getOS = await zklibTcp.getOS(ip);
+            const getOS = await zklibTcp.getOS(ip);
 
-          const getPIN = await zklibTcp.getPIN(ip);
+            const getPIN = await zklibTcp.getPIN(ip);
 
-          const getTime = await zklibTcp.getTime(ip);
+            const getTime = await zklibTcp.getTime(ip);
 
-          sn.push({
-            ip,
-            port,
-            sn: device_sn,
-            userCounts,
-            connectionType,
-            logCounts,
-            logCapacity,
-            deviceVersion: getDeviceVersion,
-            deviceName: getDeviceName,
-            platform: getPlatform,
-            os: getOS,
-            pin: getPIN,
-            deviceTime: getTime,
-          });
-        }
+            sn.push({
+              ip,
+              port,
+              sn: device_sn,
+              userCounts,
+              connectionType,
+              logCounts,
+              logCapacity,
+              deviceVersion: getDeviceVersion,
+              deviceName: getDeviceName,
+              platform: getPlatform,
+              os: getOS,
+              pin: getPIN,
+              deviceTime: getTime,
+            });
+          }
 
-        return sn;
-      };
+          return sn;
+        };
 
-      return retrives();
+        return retrives();
+      } else {
+        console.log("has not device");
+        return null;
+      }
     } else {
-      console.log("has not device");
       return null;
     }
   }
 
   async setUser(uid, userid, name, password, role = 0, cardno = 0, deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
-    return await this.functionWrapper(
-      () =>
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
+      return await this.functionWrapper(
+        () =>
+          device.zklibTcp.setUser(
+            uid,
+            userid,
+            name,
+            password,
+            role,
+            cardno,
+            deviceIP
+          ),
         device.zklibTcp.setUser(
           uid,
           userid,
@@ -184,161 +207,214 @@ class ZKLib {
           cardno,
           deviceIP
         ),
-      device.zklibTcp.setUser(
-        uid,
-        userid,
-        name,
-        password,
-        role,
-        cardno,
         deviceIP
-      ),
-      deviceIP
-    );
+      );
+    } else {
+      return null;
+    }
   }
 
   async getInfo(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
-
-    return await this.functionWrapper(
-      () => device.zklibTcp.getInfo(),
-      () => device.zklibUdp.getInfo(),
-      device
-    );
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
+      return await this.functionWrapper(
+        () => device.zklibTcp.getInfo(),
+        () => device.zklibUdp.getInfo(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getPIN(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(() => device.zklibTcp.getPIN(), device);
+      return await this.functionWrapper(() => device.zklibTcp.getPIN(), device);
+    } else {
+      return null;
+    }
   }
 
   async getSerialNumber(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getSerialNumber(),
-      device.zklibTcp.getSerialNumber(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getSerialNumber(),
+        device.zklibTcp.getSerialNumber(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getDeviceVersion(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getDeviceVersion(),
-      device.zklibTcp.getDeviceVersion(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getDeviceVersion(),
+        device.zklibTcp.getDeviceVersion(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getDeviceName(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getDeviceName(),
-      device.zklibTcp.getDeviceName(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getDeviceName(),
+        device.zklibTcp.getDeviceName(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getPlatform(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getPlatform(),
-      device.zklibTcp.getPlatform(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getPlatform(),
+        device.zklibTcp.getPlatform(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getOS(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getOS(),
-      device.zklibTcp.getOS(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getOS(),
+        device.zklibTcp.getOS(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getPIN(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getPIN(),
-      device.zklibTcp.getPIN(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getPIN(),
+        device.zklibTcp.getPIN(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getAttendanceSize(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getAttendanceSize(),
-      device.zklibTcp.getAttendanceSize(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getAttendanceSize(),
+        device.zklibTcp.getAttendanceSize(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getAttendances(cb, deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
-    return await this.functionWrapper(
-      () => device.zklibTcp.getAttendances(cb),
-      () => device.zklibUdp.getAttendances(cb),
-      device
-    );
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
+      return await this.functionWrapper(
+        () => device.zklibTcp.getAttendances(cb),
+        () => device.zklibUdp.getAttendances(cb),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async clearAttendanceLog(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
-    return await this.functionWrapper(
-      () => device.zklibTcp.clearAttendanceLog(),
-      () => device.zklibUdp.clearAttendanceLog(),
-      device
-    );
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
+      return await this.functionWrapper(
+        () => device.zklibTcp.clearAttendanceLog(),
+        () => device.zklibUdp.clearAttendanceLog(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getTime(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getTime(),
-      device.zklibTcp.getTime(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getTime(),
+        device.zklibTcp.getTime(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async getFirmware(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.getFirmware(),
-      device.zklibTcp.getFirmware(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.getFirmware(),
+        device.zklibTcp.getFirmware(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async powerOff(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.powerOff(),
-      device.zklibTcp.powerOff(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.powerOff(),
+        device.zklibTcp.powerOff(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 
   async restart(deviceIP) {
-    const device = await findDeviceByIp(this.connections, deviceIP);
+    if (this.hasDevice) {
+      const device = await findDeviceByIp(this.connections, deviceIP);
 
-    return await this.functionWrapper(
-      () => device.zklibTcp.restart(),
-      device.zklibTcp.restart(),
-      device
-    );
+      return await this.functionWrapper(
+        () => device.zklibTcp.restart(),
+        device.zklibTcp.restart(),
+        device
+      );
+    } else {
+      return null;
+    }
   }
 }
 module.exports = ZKLib;
