@@ -1,5 +1,7 @@
 ## Documentation
 
+This package enables real-time tracking of employee attendance using ZKTeco devices. It seamlessly integrates with multiple devices and utilizes their IP addresses for efficient monitoring and management.
+
 ```javascript
 // Test code:
 
