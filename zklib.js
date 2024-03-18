@@ -1,6 +1,6 @@
 const ZKLibTCP = require("./zklibtcp");
 const ZKLibUDP = require("./zklibudp");
-const { ERROR_TYPES, ZKError } = require("./zkerror");
+
 const { findDeviceByIp } = require("./utils");
 
 class ZKLib {
@@ -35,57 +35,20 @@ class ZKLib {
   async createSockets(cbErr, cbClose) {
     try {
       for (const connection of this.connections) {
-        const { zklibTcp, ip, port } = connection;
+        const { zklibTcp, ip } = connection;
 
         if (!zklibTcp.socket) {
           await zklibTcp.createSocket(cbErr, cbClose);
           await zklibTcp.connect();
 
-          console.log(`Connected to ${ip}:${port} via TCP`);
           connection.connectionType = "tcp";
           connection.status = 1;
-          this.hasDevice = true;
           this.connectedIps.push(ip);
         }
       }
-    } catch (errToConnect) {
-      this.hasDevice = false;
-      // console.log("errToConnect", errToConnect);
-      for (const connection of this.connections) {
-        connection.status = 0;
-        try {
-          await connection.zklibTcp.disconnect();
-        } catch (errToDisconnect) {
-          console.log("Error disconnecting TCP:", errToDisconnect);
-        }
 
-        if (errToConnect.code !== ERROR_TYPES.ECONNREFUSED) {
-          continue; // Skip UDP connection if TCP connection failed for this device
-        }
-
-        try {
-          if (!connection.zklibUdp.socket) {
-            await connection.zklibUdp.createSocket(cbErr, cbClose);
-            await connection.zklibUdp.connect();
-            connection.connectionType = "udp";
-            connection.status = 1;
-            this.hasDevice = true;
-          }
-        } catch (err) {
-          if (err.code !== "EADDRINUSE") {
-            connection.connectionType = null;
-            try {
-              await connection.zklibUdp.disconnect();
-              connection.zklibUdp.socket = null;
-              connection.zklibTcp.socket = null;
-            } catch (err) {}
-          } else {
-            connection.connectionType = "udp";
-            connection.status = 0;
-          }
-        }
-      }
-    }
+      this.hasDevice = this.connectedIps.length !== 0;
+    } catch (errToConnect) {}
   }
 
   async hasDevices() {

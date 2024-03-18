@@ -16,11 +16,11 @@ const test = async () => {
     // const hasDevice = await zkInstance.hasDevices();
     const getAllConnectedDevice = await zkInstance.getAllConnectedDevice();
 
-    const getAllDisconnectedDevice = await zkInstance.getAllDisconnectedDevice(
-      deviceIps
-    );
+    // const getAllDisconnectedDevice = await zkInstance.getAllDisconnectedDevice(
+    //   deviceIps
+    // );
 
-    console.log("getAllDisconnectedDevice", getAllDisconnectedDevice);
+    // console.log("getAllDisconnectedDevice", getAllDisconnectedDevice);
     // console.log("getAllConnectedDevice", getAllConnectedDevice);
   } catch (e) {
     console.log(e);

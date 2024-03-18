@@ -34,6 +34,7 @@ class ZKLibTCP {
    * @returns {Promise<net.Socket>} - A promise resolving to the socket object.
    */
   createSocket(cbError, cbClose) {
+    console.log(this.ip);
     return new Promise((resolve, reject) => {
       this.socket = new net.Socket();
 
