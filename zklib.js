@@ -9,6 +9,8 @@ class ZKLib {
     this.timeout = 10000;
     this.inport = 4000;
     this.hasDevice = false;
+    this.connectedDevices = [];
+    this.connectedIps = [];
 
     this.connections = this.devices.map((device, key) => {
       const { deviceIp, devicePort } = device;
@@ -38,10 +40,12 @@ class ZKLib {
         if (!zklibTcp.socket) {
           await zklibTcp.createSocket(cbErr, cbClose);
           await zklibTcp.connect();
+
           console.log(`Connected to ${ip}:${port} via TCP`);
           connection.connectionType = "tcp";
           connection.status = 1;
           this.hasDevice = true;
+          this.connectedIps.push(ip);
         }
       }
     } catch (errToConnect) {
@@ -174,11 +178,28 @@ class ZKLib {
           return sn;
         };
 
+        this.connectedDevices = retrives();
         return retrives();
       } else {
         console.log("has not device");
         return null;
       }
+    } else {
+      return null;
+    }
+  }
+
+  async getActiveIps() {
+    if (this.connectedIps && this.connectedIps.length > 0) {
+      return this.connectedIps;
+    } else {
+      return null;
+    }
+  }
+  async getAllDisconnectedDevice(ips) {
+    if (this.connectedIps && this.connectedIps.length > 0) {
+      const deviceIPs = new Set(this.connectedIps.map((ip) => ip));
+      return ips.filter((ip) => !deviceIPs.has(ip));
     } else {
       return null;
     }

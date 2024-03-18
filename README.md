@@ -12,6 +12,10 @@ const test = async () => {
     // Define the IP address of the device.
     const deviceIp = "192.168.1.201";
 
+    //  Ips
+    const ips = ["192.168.1.201"];
+    let zkInstance = new ZKTeco(devices);
+
     // List of devices with their respective IP addresses and ports.
     const devices = [{ deviceIp: "192.168.1.201", devicePort: "4370" }];
     let zkInstance = new ZKTeco(devices);
@@ -25,6 +29,11 @@ const test = async () => {
 
     // Retrieve all devices currently connected.
     const getAllConnectedDevices = await zkInstance.getAllConnectedDevice();
+
+    // Retrieve all disconnected devices by all devices ip.
+    const getAllDisconnectedDevices = await zkInstance.getAllDisconnectedDevice(
+      ips
+    );
 
     // Create a new user: setUser(deviceIp,uid, userid, name, password, role = 0, cardno = 0)
     await zkInstance.setUser(deviceIp, 12, "9", "Shahadat Jaman", "1", 0, 0);
