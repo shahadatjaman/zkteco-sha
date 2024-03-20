@@ -254,3 +254,8 @@ module.exports.findDeviceByIp = async (arr, targetIp) => {
 
   return null;
 };
+
+module.exports.findDevicesByIps = async (devices, activeIps) => {
+  const filtered = devices.filter((device) => activeIps.includes(device.ip));
+  return filtered;
+};

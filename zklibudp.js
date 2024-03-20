@@ -1,5 +1,6 @@
 const dgram = require("dgram");
 const { createUDPHeader } = require("./utils");
+const { COMMANDS } = require("./constants");
 
 class ZKLibUDP {
   constructor(ip, port, timeout, inport) {
