@@ -551,6 +551,31 @@ class ZKLibTCP {
       return null;
     }
   }
+
+  async getAllConnectedDevices() {
+    try {
+      const connectedDevices = await findDevicesByIps(
+        this.devices,
+        this.connectedIps
+      );
+
+      if (connectedDevices && connectedDevices.length > 0) {
+        const devices = [];
+        for (const device of connectedDevices) {
+          const getTime = await this.getTime(device.ip);
+          const getInfo = await this.getInfo(device.ip);
+
+          devices.push({ deviceTime: getTime, ...getInfo });
+        }
+
+        return devices;
+      } else {
+        return null;
+      }
+    } catch (error) {
+      return null;
+    }
+  }
 }
 
 module.exports = ZKLibTCP;

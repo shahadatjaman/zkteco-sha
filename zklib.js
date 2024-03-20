@@ -53,6 +53,11 @@ class ZKLib {
     const records = await this.zklibTcp.getUsers(deviceIp);
     return records;
   }
+
+  async getAllConnectedDevices() {
+    const getAllConnectedDevices = await this.zklibTcp.getAllConnectedDevices();
+    return getAllConnectedDevices;
+  }
   async getTime(deviceIp) {
     const records = await this.zklibTcp.getTime(deviceIp);
     return records;
