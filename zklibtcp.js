@@ -146,7 +146,7 @@ class ZKLibTCP {
       const deviceIPs = new Set(this.connectedIps.map((ip) => ip));
       const disCon = allDeviceIps.filter((ip) => !deviceIPs.has(ip));
 
-      return disCon && disCon.length > 0 ? disCon : allDeviceIps;
+      return disCon && disCon.length > 0 ? disCon : null;
     } else {
       return allDeviceIps;
     }
@@ -573,6 +573,26 @@ class ZKLibTCP {
         return null;
       }
     } catch (error) {
+      return null;
+    }
+  }
+
+  async shutdown(deviceIp) {
+    try {
+      const connectedDevices = await findDevicesByIps(
+        this.devices,
+        this.connectedIps
+      );
+
+      if (connectedDevices && connectedDevices.length > 0) {
+        const device = await findDeviceByIp(connectedDevices, deviceIp);
+        const t = await this.executeCmd(device, COMMANDS.CMD_POWEROFF, "");
+
+        return timeParser.decode(t.readUInt32LE(8));
+      } else {
+        return null;
+      }
+    } catch (err) {
       return null;
     }
   }

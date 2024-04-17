@@ -67,5 +67,9 @@ class ZKLib {
     const records = await this.zklibTcp.getInfo(deviceIp);
     return records;
   }
+
+  async shutdown(deviceIp) {
+    await this.zklibTcp.shutdown(deviceIp);
+  }
 }
 module.exports = ZKLib;

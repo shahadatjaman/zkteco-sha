@@ -43,6 +43,9 @@ const test = async () => {
     // Retrieve the current time from the machine.
     const getTime = await zkInstance.getTime(deviceIp);
     console.log(getTime);
+
+    // Power OFF by Device Ip
+    await zkInstance.shutdown(deviceIp);
   } catch (e) {
     console.log(e);
     if (e.code === "EADDRINUSE") {

@@ -10,7 +10,7 @@ const test = async () => {
     // Establish connections to the machine using sockets.
 
     await zkInstance.connectAll();
-    const getAllConnectedDevices = await zkInstance.getAllConnectedDevices();
+    await zkInstance.shutdown("192.168.1.8");
   } catch (e) {
     console.log(e);
     console.timeEnd("from catch in test.js");
