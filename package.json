@@ -1,10 +1,11 @@
 {
   "name": "zkteco-sha",
-  "version": "1.7.1",
+  "version": "1.7.9",
   "description": "This package enables real-time tracking of employee attendance using ZKTeco devices. It seamlessly integrates with multiple devices and utilizes their IP addresses for efficient monitoring and management.",
   "main": "zklib.js",
   "scripts": {
-    "test": "node test"
+    "test": "node test",
+    "start": "node test.js"
   },
   "repository": {
     "type": "git",

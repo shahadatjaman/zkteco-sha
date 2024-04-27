@@ -8,12 +8,11 @@ const test = async () => {
     let zkInstance = new ZKTeco(devices);
 
     // Establish connections to the machine using sockets.
-
     await zkInstance.connectAll();
-    await zkInstance.shutdown("192.168.1.8");
+
+    console.log("zkInstance", zkInstance);
   } catch (e) {
-    console.log(e);
-    console.timeEnd("from catch in test.js");
+    console.log(`Error at 19`);
   }
 };
 

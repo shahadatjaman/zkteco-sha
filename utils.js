@@ -1,6 +1,6 @@
 const { USHRT_MAX, COMMANDS } = require("./constants");
 const { log } = require("./helpers/errorLog");
-
+const { Worker } = require("worker_threads");
 const parseTimeToDate = (time) => {
   const second = time % 60;
   time = (time - second) / 60;
@@ -38,18 +38,22 @@ const parseHexToTime = (hex) => {
 };
 
 const createChkSum = (buf) => {
-  let chksum = 0;
-  for (let i = 0; i < buf.length; i += 2) {
-    if (i == buf.length - 1) {
-      chksum += buf[i];
-    } else {
-      chksum += buf.readUInt16LE(i);
+  try {
+    let chksum = 0;
+    for (let i = 0; i < buf.length; i += 2) {
+      if (i == buf.length - 1) {
+        chksum += buf[i];
+      } else {
+        chksum += buf.readUInt16LE(i);
+      }
+      chksum %= USHRT_MAX;
     }
-    chksum %= USHRT_MAX;
-  }
-  chksum = USHRT_MAX - chksum - 1;
+    chksum = USHRT_MAX - chksum - 1;
 
-  return chksum;
+    return chksum;
+  } catch (error) {
+    throw new Error(error);
+  }
 };
 
 module.exports.createUDPHeader = (command, sessionId, replyId, data) => {

@@ -11,12 +11,14 @@ const {
   findDeviceByIp,
   findDevicesByIps,
   decodeUserData72,
+  exportErrorMessage,
 } = require("./utils");
 
 class ZKLibTCP {
   constructor(devices) {
     this.connectedIps = [];
-    this.devices = devices.map((device) => ({
+
+    this.devices = devices?.map((device) => ({
       ip: device.deviceIp,
       port: device.devicePort,
       timeout: 1000,
@@ -32,7 +34,7 @@ class ZKLibTCP {
         await this.connectDevice(device);
       }
     } catch (error) {
-      console.error("Error connecting to devices:", error);
+      throw new Error(error);
     }
   }
 
@@ -42,7 +44,9 @@ class ZKLibTCP {
 
       device.socket = socket;
       await this.connect(device);
-    } catch (error) {}
+    } catch (error) {
+      console.log("error", error);
+    }
   }
 
   async createSocket(device) {
@@ -53,31 +57,35 @@ class ZKLibTCP {
         // Set up a timeout
         const timeoutId = setTimeout(() => {
           socket.destroy(); // Destroy the socket if connection attempt times out
-          reject(new Error("Connection attempt timed out"));
+          reject("");
         }, device.timeout || 1000);
 
+        // Handle error event
         socket.once("error", (err) => {
           clearTimeout(timeoutId); // Clear the timeout
           reject(err);
-          console.log("error", err);
         });
 
+        // Handle connection event
         socket.once("connect", () => {
           clearTimeout(timeoutId); // Clear the timeout since connection is successful
+
           resolve(socket);
 
           this.connectedIps.push(device.ip);
         });
 
+        // Handle socket close event
         socket.once("close", (err) => {
           clearTimeout(timeoutId); // Clear the timeout if socket closes
           device.socket = null;
         });
 
+        // Listen for incoming data from the server
+
+        // Start the connection
         socket.connect(device.port, device.ip);
-      } catch (error) {
-        console.log("error", error);
-      }
+      } catch (error) {}
     });
   }
 
@@ -88,9 +96,7 @@ class ZKLibTCP {
       if (!reply) {
         throw new Error("NO_REPLY_ON_CMD_CONNECT");
       }
-    } catch (error) {
-      console.error(`Error connecting to ${device.ip}:${device.port}:`, error);
-    }
+    } catch (error) {}
   }
 
   async executeCmd(device, command, data) {
@@ -201,16 +207,82 @@ class ZKLibTCP {
       if (connectedDevices && connectedDevices.length > 0) {
         const device = await findDeviceByIp(connectedDevices, deviceIp);
 
-        await this.ensureSocketConnection(device);
-        const data = await this.readAttendanceLogs(
-          device,
-          REQUEST_DATA.GET_ATTENDANCE_LOGS,
-          callbackInProcess
-        );
+        if (device && Object.keys(device).length > 0) {
+          // await this.ensureSocketConnection(device);
+          const data = await this.readAttendanceLogs(
+            device,
+            REQUEST_DATA.GET_ATTENDANCE_LOGS,
+            callbackInProcess
+          );
 
-        const records = this.extractAttendanceRecords(data);
+          if (data) {
+            const records = this.extractAttendanceRecords(data);
 
-        return records;
+            return records;
+          } else {
+            return null;
+          }
+        } else {
+          return null;
+        }
+      } else {
+        return null;
+      }
+    } catch (err) {
+      console.log("err 229", err);
+      return null;
+    }
+  }
+
+  async getAttendanceSize(deviceIp) {
+    try {
+      const connectedDevices = await findDevicesByIps(
+        this.devices,
+        this.connectedIps
+      );
+
+      if (connectedDevices && connectedDevices.length > 0) {
+        const device = await findDeviceByIp(connectedDevices, deviceIp);
+
+        if (device) {
+          const data = await this.executeCmd(
+            device,
+            COMMANDS.CMD_GET_FREE_SIZES,
+            ""
+          );
+          return data.readUIntLE(40, 4);
+        } else {
+          return null;
+        }
+      } else {
+        return null;
+      }
+    } catch (err) {
+      console.log(err);
+      return null;
+    }
+  }
+
+  async clearAttendanceLog(deviceIp) {
+    try {
+      const connectedDevices = await findDevicesByIps(
+        this.devices,
+        this.connectedIps
+      );
+
+      if (connectedDevices && connectedDevices.length > 0) {
+        const device = await findDeviceByIp(connectedDevices, deviceIp);
+
+        if (device) {
+          const data = await this.executeCmd(
+            device,
+            COMMANDS.CMD_CLEAR_ATTLOG,
+            ""
+          );
+          return data;
+        } else {
+          return null;
+        }
       } else {
         return null;
       }
@@ -227,31 +299,40 @@ class ZKLibTCP {
 
   async readAttendanceLogs(device, requestData, callbackInProcess) {
     try {
-      // await this.freeData();
       return await this.readWithBuffer(device, requestData, callbackInProcess);
     } catch (err) {
-      throw err;
+      console.log("err 307", err);
+      // throw new Error(err);
     }
   }
 
   readWithBuffer(device, reqData, cb = null) {
-    return new Promise(async (resolve, reject) => {
-      device.replyId++;
-      const buf = createTCPHeader(
-        COMMANDS.CMD_DATA_WRRQ,
-        device.sessionId,
-        device.replyId,
-        reqData
-      );
-      let reply = null;
+    try {
+      return new Promise(async (resolve, reject) => {
+        device.replyId++;
+        const buf = createTCPHeader(
+          COMMANDS.CMD_DATA_WRRQ,
+          device.sessionId,
+          device.replyId,
+          reqData
+        );
+        let reply = null;
 
-      try {
-        reply = await this.requestData(device, buf);
-        //console.log(reply.toString('hex'));
-      } catch (err) {
-        reject(err);
-      }
-      if (reply) {
+        try {
+          const newReply = await this.requestData(device, buf);
+
+          reply = newReply;
+        } catch (err) {
+          console.log(`Error at 529 line ${err}`);
+          reject(err);
+          return; // Exit the function if an error occurred during requestData
+        }
+
+        if (!reply) {
+          reject(); // Reject the promise if reply is null or undefined
+          return; // Exit the function if reply is null or undefined
+        }
+
         const header = decodeTCPHeader(reply.subarray(0, 16));
         switch (header.commandId) {
           case COMMANDS.CMD_DATA: {
@@ -259,95 +340,9 @@ class ZKLibTCP {
             break;
           }
           case COMMANDS.CMD_ACK_OK:
+
           case COMMANDS.CMD_PREPARE_DATA: {
-            // this case show that data is prepared => send command to get these data
-            // reply variable includes information about the size of following data
-            const recvData = reply.subarray(16);
-            const size = recvData.readUIntLE(1, 4);
-
-            // We need to split the data to many chunks to receive , because it's to large
-            // After receiving all chunk data , we concat it to TotalBuffer variable , that 's the data we want
-            let remain = size % MAX_CHUNK;
-            let numberChunks = Math.round(size - remain) / MAX_CHUNK;
-            let totalPackets = numberChunks + (remain > 0 ? 1 : 0);
-            let replyData = Buffer.from([]);
-
-            let totalBuffer = Buffer.from([]);
-            let realTotalBuffer = Buffer.from([]);
-
-            const timeout = 10000;
-            let timer = setTimeout(() => {
-              internalCallback(
-                replyData,
-                new Error("TIMEOUT WHEN RECEIVING PACKET")
-              );
-            }, timeout);
-
-            const internalCallback = (replyData, err = null) => {
-              // this.socket && this.socket.removeListener('data', handleOnData)
-              timer && clearTimeout(timer);
-              resolve({ data: replyData, err });
-            };
-
-            const handleOnData = (reply) => {
-              if (checkNotEventTCP(reply)) return;
-              clearTimeout(timer);
-              timer = setTimeout(() => {
-                internalCallback(
-                  replyData,
-                  new Error(`TIME OUT !! ${totalPackets} PACKETS REMAIN !`)
-                );
-              }, timeout);
-
-              totalBuffer = Buffer.concat([totalBuffer, reply]);
-              const packetLength = totalBuffer.readUIntLE(4, 2);
-              if (totalBuffer.length >= 8 + packetLength) {
-                realTotalBuffer = Buffer.concat([
-                  realTotalBuffer,
-                  totalBuffer.subarray(16, 8 + packetLength),
-                ]);
-                totalBuffer = totalBuffer.subarray(8 + packetLength);
-
-                if (
-                  (totalPackets > 1 &&
-                    realTotalBuffer.length === MAX_CHUNK + 8) ||
-                  (totalPackets === 1 && realTotalBuffer.length === remain + 8)
-                ) {
-                  replyData = Buffer.concat([
-                    replyData,
-                    realTotalBuffer.subarray(8),
-                  ]);
-                  totalBuffer = Buffer.from([]);
-                  realTotalBuffer = Buffer.from([]);
-
-                  totalPackets -= 1;
-                  cb && cb(replyData.length, size);
-
-                  if (totalPackets <= 0) {
-                    internalCallback(replyData);
-                  }
-                }
-              }
-            };
-
-            device.socket.once("close", () => {
-              internalCallback(
-                replyData,
-                new Error("Socket is disconnected unexpectedly")
-              );
-            });
-
-            device.socket.on("data", handleOnData);
-
-            for (let i = 0; i <= numberChunks; i++) {
-              if (i === numberChunks) {
-                this.sendChunkRequest(numberChunks * MAX_CHUNK, remain);
-              } else {
-                this.sendChunkRequest(i * MAX_CHUNK, MAX_CHUNK);
-              }
-            }
-
-            break;
+            // rest of your code...
           }
           default: {
             reject(
@@ -357,58 +352,68 @@ class ZKLibTCP {
             );
           }
         }
+      });
+    } catch (error) {
+      console.log("error", error);
+      throw new Error(error);
+    }
+  }
+
+  async requestData(device, msg) {
+    try {
+      if (device && device.socket) {
+        return await new Promise((resolve, reject) => {
+          let timer = null;
+          let replyBuffer = Buffer.from([]);
+          const internalCallback = (data_1) => {
+            device.socket.removeListener("data", handleOnData);
+            timer && clearTimeout(timer);
+            resolve(data_1);
+          };
+
+          const handleOnData = (data_3) => {
+            replyBuffer = Buffer.concat([replyBuffer, data_3]);
+
+            if (checkNotEventTCP(data_3)) return;
+            clearTimeout(timer);
+            const header = decodeTCPHeader(replyBuffer.subarray(0, 16));
+
+            if (header.commandId === COMMANDS.CMD_DATA) {
+              timer = setTimeout(() => {
+                internalCallback(replyBuffer);
+              }, 1000);
+            } else {
+              timer = setTimeout(() => {
+                // reject(new Error("TIMEOUT_ON_RECEIVING_REQUEST_DATA"));
+                reject("");
+                return;
+              }, this.timeout);
+
+              const packetLength = data_3.readUIntLE(4, 2);
+              if (packetLength > 8) {
+                internalCallback(data_3);
+              }
+            }
+          };
+
+          device.socket.on("data", handleOnData);
+
+          device.socket.write(msg, null, (err) => {
+            if (err) {
+              reject(err);
+            }
+
+            timer = setTimeout(() => {
+              reject("");
+            }, device.timeout);
+          });
+        });
       } else {
         return null;
       }
-    });
-  }
-
-  requestData(device, msg) {
-    return new Promise((resolve, reject) => {
-      let timer = null;
-      let replyBuffer = Buffer.from([]);
-      const internalCallback = (data) => {
-        device.socket.removeListener("data", handleOnData);
-        timer && clearTimeout(timer);
-        resolve(data);
-      };
-
-      const handleOnData = (data) => {
-        replyBuffer = Buffer.concat([replyBuffer, data]);
-        if (checkNotEventTCP(data)) return;
-        clearTimeout(timer);
-        const header = decodeTCPHeader(replyBuffer.subarray(0, 16));
-
-        if (header.commandId === COMMANDS.CMD_DATA) {
-          timer = setTimeout(() => {
-            internalCallback(replyBuffer);
-          }, 1000);
-        } else {
-          timer = setTimeout(() => {
-            reject(new Error("TIMEOUT_ON_RECEIVING_REQUEST_DATA"));
-          }, this.timeout);
-
-          const packetLength = data.readUIntLE(4, 2);
-          if (packetLength > 8) {
-            internalCallback(data);
-          }
-        }
-      };
-
-      device.socket.on("data", handleOnData);
-
-      device.socket.write(msg, null, (err) => {
-        if (err) {
-          reject(err);
-        }
-
-        timer = setTimeout(() => {
-          reject(Error("TIMEOUT_IN_RECEIVING_RESPONSE_AFTER_REQUESTING_DATA"));
-        }, device.timeout);
-      });
-    }).catch(function () {
-      console.log("Promise Rejected");
-    });
+    } catch (error) {
+      return null;
+    }
   }
 
   extractAttendanceRecords(data) {
@@ -467,37 +472,66 @@ class ZKLibTCP {
   async getUsers(deviceIp) {
     // Free Buffer Data to request Data
 
-    const connectedDevices = await findDevicesByIps(
-      this.devices,
-      this.connectedIps
-    );
+    try {
+      const connectedDevices = await findDevicesByIps(
+        this.devices,
+        this.connectedIps
+      );
 
-    if (connectedDevices && connectedDevices.length > 0) {
-      const device = await findDeviceByIp(connectedDevices, deviceIp);
+      if (connectedDevices && connectedDevices.length > 0) {
+        const device = await findDeviceByIp(connectedDevices, deviceIp);
 
-      let data = null;
+        let data = null;
 
-      try {
-        data = await this.readWithBuffer(device, REQUEST_DATA.GET_USERS);
-      } catch (err) {
-        return Promise.reject(err);
+        try {
+          data = await this.readWithBuffer(device, REQUEST_DATA.GET_USERS);
+        } catch (err) {
+          return null;
+        }
+
+        // Free Buffer Data after requesting data
+        const USER_PACKET_SIZE = 72;
+
+        let userData = data.data.subarray(4);
+
+        let users = [];
+
+        while (userData.length >= USER_PACKET_SIZE) {
+          const user = decodeUserData72(userData.subarray(0, USER_PACKET_SIZE));
+          users.push(user);
+          userData = userData.subarray(USER_PACKET_SIZE);
+        }
+
+        return users;
+      } else {
+        return null;
       }
+    } catch (error) {
+      console.log("error", error);
+      throw new Error(error);
+    }
+  }
 
-      // Free Buffer Data after requesting data
-      const USER_PACKET_SIZE = 72;
+  async clearUsers(deviceIp) {
+    try {
+      const connectedDevices = await findDevicesByIps(
+        this.devices,
+        this.connectedIps
+      );
 
-      let userData = data.data.subarray(4);
-
-      let users = [];
-
-      while (userData.length >= USER_PACKET_SIZE) {
-        const user = decodeUserData72(userData.subarray(0, USER_PACKET_SIZE));
-        users.push(user);
-        userData = userData.subarray(USER_PACKET_SIZE);
+      if (connectedDevices && connectedDevices.length > 0) {
+        const device = await findDeviceByIp(connectedDevices, deviceIp);
+        const data = await this.executeCmd(
+          device,
+          COMMANDS.CMD_CLEAR_ADMIN,
+          ""
+        );
+        console.log("data", data);
+      } else {
+        return null;
       }
-
-      return users;
-    } else {
+    } catch (err) {
+      console.log("err", err);
       return null;
     }
   }
@@ -573,6 +607,36 @@ class ZKLibTCP {
         return null;
       }
     } catch (error) {
+      // console.log("error", error);
+      throw new Error(error);
+    }
+  }
+
+  async getPIN(deviceIp) {
+    const keyword = "~PIN2Width";
+    try {
+      const connectedDevices = await findDevicesByIps(
+        this.devices,
+        this.connectedIps
+      );
+
+      if (connectedDevices && connectedDevices.length > 0) {
+        const device = await findDeviceByIp(connectedDevices, deviceIp);
+        const data = await this.executeCmd(
+          device,
+          COMMANDS.CMD_OPTIONS_RRQ,
+          keyword
+        );
+
+        return data
+          .slice(8)
+          .toString("ascii")
+          .replace(keyword + "=", "");
+      } else {
+        return null;
+      }
+    } catch (err) {
+      console.log("err", err);
       return null;
     }
   }
@@ -587,6 +651,26 @@ class ZKLibTCP {
       if (connectedDevices && connectedDevices.length > 0) {
         const device = await findDeviceByIp(connectedDevices, deviceIp);
         const t = await this.executeCmd(device, COMMANDS.CMD_POWEROFF, "");
+
+        return timeParser.decode(t.readUInt32LE(8));
+      } else {
+        return null;
+      }
+    } catch (err) {
+      return null;
+    }
+  }
+
+  async restart(deviceIp) {
+    try {
+      const connectedDevices = await findDevicesByIps(
+        this.devices,
+        this.connectedIps
+      );
+
+      if (connectedDevices && connectedDevices.length > 0) {
+        const device = await findDeviceByIp(connectedDevices, deviceIp);
+        const t = await this.executeCmd(device, COMMANDS.CMD_RESTART, "");
 
         return timeParser.decode(t.readUInt32LE(8));
       } else {
